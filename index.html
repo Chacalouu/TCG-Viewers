@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TCG Viewers Chacalou</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b0b0d; --bg-2: #121216; --line: #2a2a32;
+      --text: #ececec; --muted: #8b8b96;
+      --item-w: 168px; --item-h: 236px; --gap: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; justify-content: space-between; align-items: center; gap: 16px;
+      padding: 16px 24px; background: var(--bg); border-bottom: 1px solid var(--line);
+    }
+    .brand { font-weight: 700; letter-spacing: -.02em; font-size: 16px; }
+    .brand span { color: var(--muted); font-weight: 500; }
+    .stats { display: flex; gap: 18px; color: var(--muted); font-size: 13px; font-weight: 500; }
+    .stats b { color: var(--text); font-weight: 600; }
+    main { max-width: 1080px; margin: 0 auto; padding: 28px 20px 72px; }
+    .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 28px; }
+    .bar p { color: var(--muted); font-size: 13px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      font-family: inherit; border: 1px solid var(--line); background: var(--bg-2);
+      color: var(--text); cursor: pointer; font-weight: 600; font-size: 13px;
+      border-radius: 8px; padding: 9px 12px;
+    }
+    button:hover { background: #1a1a20; }
+    button:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-main { background: #efefef; color: #111; border-color: #efefef; }
+    .btn-main:hover { background: #fff; }
+    .btn-sell { width: 100%; font-size: 12px; }
+    input[type="text"] {
+      font-family: inherit; background: var(--bg-2); color: var(--text);
+      border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; min-width: 180px;
+    }
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--line); margin-bottom: 18px; flex-wrap: wrap; }
+    .tab { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 10px 14px; }
+    .tab.active { color: var(--text); border-bottom-color: var(--text); }
+    .section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 14px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 12px; }
+    .card-wrap { display: flex; flex-direction: column; gap: 6px; }
+    .card {
+      position: relative; background: #16161a;
+      border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+    }
+    .card img { width: 100%; height: auto; object-fit: contain; display: block; background: #16161a; }
+    .card.locked { opacity: .2; }
+    .card.picked { outline: 2px solid #fff; }
+    .count-badge, .stat-badge {
+      position: absolute; z-index: 2; font-weight: 700; font-size: 11px;
+      background: #111; border: 1px solid var(--line);
+    }
+    .count-badge { top: 6px; right: 6px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; display: grid; place-items: center; }
+    .stat-badge { left: 6px; bottom: 6px; padding: 3px 6px; border-radius: 6px; color: #ccc; }
+    .empty, .warn { padding: 20px; color: var(--muted); font-size: 13px; border: 1px solid var(--line); border-radius: 8px; }
+    .warn { margin-bottom: 16px; }
+
+    .overlay, .viewer, .modal, .battle {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    }
+    .overlay { z-index: 50; background: rgba(8,8,10,.96); }
+    .overlay.show, .viewer.show, .modal.show, .battle.show { display: flex; }
+    .open-box { width: min(1080px, 100%); padding: 16px; text-align: center; }
+    .open-box h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .case { position: relative; margin: 22px auto 16px; height: calc(var(--item-h) + 24px); overflow: hidden; border: 1px solid var(--line); background: #0e0e12; }
+    .case::before, .case::after { content: ""; position: absolute; top: 0; bottom: 0; width: 80px; z-index: 3; pointer-events: none; }
+    .case::before { left: 0; background: linear-gradient(90deg, #0e0e12, transparent); }
+    .case::after { right: 0; background: linear-gradient(270deg, #0e0e12, transparent); }
+    .needle { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; transform: translateX(-50%); z-index: 4; background: #fff; }
+    .reel { position: absolute; left: 50%; top: 12px; display: flex; gap: var(--gap); height: var(--item-h); will-change: transform; }
+    .item { width: var(--item-w); height: var(--item-h); flex: 0 0 var(--item-w); border: 1px solid var(--line); background: #16161a; overflow: hidden; }
+    .item img, .result-card img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .item.win { border-color: #fff; }
+    .result { min-height: 24px; font-size: 14px; font-weight: 600; margin-top: 4px; }
+    .result-card { width: 210px; aspect-ratio: 63 / 88; margin: 12px auto 0; border: 1px solid #fff; background: #16161a; display: none; }
+    .result-card.show { display: block; }
+    .viewer { z-index: 80; background: rgba(8,8,10,.96); }
+    .viewer img { max-width: min(520px, 80vw); max-height: 78vh; object-fit: contain; display: block; }
+    .viewer img.dim { opacity: .2; }
+    .nav-btn, .viewer-close { position: fixed; background: var(--bg-2); }
+    .nav-btn { top: 50%; transform: translateY(-50%); width: 44px; height: 44px; font-size: 22px; }
+    .nav-btn.prev { left: 16px; } .nav-btn.next { right: 16px; }
+    .viewer-close { top: 16px; right: 16px; }
+    .viewer-meta { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: 13px; }
+    .toast {
+      position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(12px);
+      background: #1a1a20; border: 1px solid var(--line); padding: 10px 12px; border-radius: 8px;
+      font-size: 13px; z-index: 90; opacity: 0; pointer-events: none; transition: .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .modal { z-index: 100; background: rgba(8,8,10,.96); }
+    .modal-box { width: min(420px, 92vw); background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
+    .modal-box h2 { font-size: 18px; margin-bottom: 8px; }
+    .modal-box p { color: var(--muted); font-size: 13px; margin-bottom: 14px; line-height: 1.45; }
+    .modal-box input { width: 100%; margin-bottom: 12px; }
+
+    .team-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 18px; }
+    @media (max-width: 700px) { .team-row { grid-template-columns: repeat(3, 1fr); } }
+    .slot { border: 1px dashed var(--line); border-radius: 8px; background: #101014; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; min-height: 160px; }
+    .slot img { width: 100%; height: auto; object-fit: contain; display: block; }
+
+    .battle { z-index: 70; background: rgba(8,8,10,.97); padding: 20px; overflow: auto; }
+    .battle-box { width: min(980px, 100%); }
+    .scoreline { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
+    .scoreline b { font-size: 20px; }
+    .lane-title { color: var(--muted); font-size: 12px; margin: 12px 0 8px; }
+    .lane { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+    .bcard { border: 1px solid var(--line); border-radius: 8px; background: #16161a; cursor: pointer; position: relative; min-height: 120px; }
+    .bcard img { width: 100%; height: auto; object-fit: contain; display: block; }
+    .bcard.back { background: repeating-linear-gradient(45deg,#19191f 0 8px,#141418 8px 16px); }
+    .bcard.used { opacity: .25; pointer-events: none; }
+    .clash { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; margin: 18px 0; }
+    .clash img { width: 100%; aspect-ratio: 63/88; object-fit: contain; background: #16161a; border: 1px solid var(--line); border-radius: 8px; }
+    .clash .vs { color: var(--muted); font-weight: 700; }
+    .friend {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+      padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; background: var(--bg-2);
+    }
+    .friend .rec { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">TCG Viewers <span>Chacalou</span></div>
+    <div class="stats">
+      <div><b id="nickLabel">—</b></div>
+      <div><b id="goldLabel">0</b> golds</div>
+      <div><b id="colLabel">0/0</b></div>
+      <div><b id="freeLabel">4/4</b> gratuit</div>
+    </div>
+  </header>
+
+  <main>
+    <div id="missing" class="warn" hidden></div>
+    <div class="bar">
+      <p id="timerText">4 ouvertures gratuites par jour · pack 10 golds</p>
+      <div class="actions">
+        <button class="btn-main" id="btnFree" disabled>Ouvrir</button>
+        <button id="btnBuy">Acheter 10g</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="collection">Collection</button>
+      <button class="tab" data-tab="doublons">Doublons</button>
+      <button class="tab" data-tab="equipe">Mon équipe</button>
+      <button class="tab" data-tab="amis">Amis</button>
+    </div>
+
+    <section id="tab-collection">
+      <div class="section-head">
+        <span id="progressText">Collection</span>
+        <span>← → dans la visionneuse</span>
+      </div>
+      <div class="grid" id="collectionGrid"></div>
+    </section>
+
+    <section id="tab-doublons" hidden>
+      <div class="section-head">
+        <span>Doublons · vente 1 à 5 golds</span>
+        <button id="btnSellAll">Tout vendre</button>
+      </div>
+      <div class="grid" id="dupGrid"></div>
+    </section>
+
+    <section id="tab-equipe" hidden>
+      <div class="section-head">
+        <span>5 cartes possédées · ATQ / DEF dans le nom (ex. Chacalou9894.png → 98 / 94)</span>
+      </div>
+      <div class="team-row" id="teamRow"></div>
+      <div class="actions" style="margin-bottom:16px">
+        <input id="friendNick" type="text" placeholder="Pseudo de l’ami" maxlength="16" />
+        <button class="btn-main" id="btnFight">Défier</button>
+        <span class="muted" id="peerStatus">Hors ligne</span>
+      </div>
+      <p class="muted" style="margin-bottom:12px">L’ami doit avoir le site ouvert avec son pseudo. Tu attaques au 1er, 3e et 5e duel. Lui au 2e et 4e.</p>
+      <div class="grid" id="ownedPickGrid"></div>
+    </section>
+
+    <section id="tab-amis" hidden>
+      <div class="section-head">
+        <span>Ajoute un ami, puis défie-le. Victoires et défaites sont enregistrées.</span>
+      </div>
+      <div class="actions" style="margin-bottom:16px">
+        <input id="addFriendNick" type="text" placeholder="Pseudo à ajouter" maxlength="16" />
+        <button class="btn-main" id="btnAddFriend">Ajouter</button>
+        <span class="muted" id="peerStatusAmis"></span>
+      </div>
+      <div id="friendsList"></div>
+    </section>
+  </main>
+
+  <div class="overlay" id="overlay">
+    <div class="open-box">
+      <h3>Ouverture</h3>
+      <p class="muted" id="spinLabel">Défilement</p>
+      <div class="case"><div class="needle"></div><div class="reel" id="reel"></div></div>
+      <div class="result" id="result"></div>
+      <div class="result-card" id="resultCard"><img id="resultImg" alt="" /></div>
+      <div class="actions" style="justify-content:center;margin-top:14px">
+        <button class="btn-main" id="btnCollect" hidden>OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="viewer" id="viewer">
+    <button class="viewer-close" id="viewerClose">Fermer</button>
+    <button class="nav-btn prev" id="prevBtn">‹</button>
+    <img id="viewerImg" alt="" />
+    <button class="nav-btn next" id="nextBtn">›</button>
+    <div class="viewer-meta" id="viewerMeta"></div>
+  </div>
+
+  <div class="modal" id="nickModal">
+    <div class="modal-box">
+      <h2>Choisis ton pseudo</h2>
+      <p>Il sert à te connecter pour les combats. L’ami devra taper exactement le même.</p>
+      <input id="nickInput" type="text" maxlength="16" placeholder="Ex. Chacalou" />
+      <button class="btn-main" id="btnNick">Valider</button>
+    </div>
+  </div>
+
+  <div class="battle" id="battle">
+    <div class="battle-box">
+      <div class="scoreline">
+        <div><div class="muted" id="meName">Toi</div><b id="meScore">0</b></div>
+        <div class="muted" id="roundLabel">Duel 1 / 5</div>
+        <div style="text-align:right"><div class="muted" id="oppName">Adversaire</div><b id="oppScore">0</b></div>
+      </div>
+      <p class="muted" id="battleHint">En attente…</p>
+      <div class="clash" id="clash" hidden>
+        <div><img id="clashMine" alt="" /><div class="muted" id="clashMineStat"></div></div>
+        <div class="vs">VS</div>
+        <div><img id="clashOpp" alt="" /><div class="muted" id="clashOppStat"></div></div>
+      </div>
+      <div class="lane-title">Adversaire</div>
+      <div class="lane" id="oppLane"></div>
+      <div class="lane-title">Tes cartes</div>
+      <div class="lane" id="myLane"></div>
+      <div class="actions" style="margin-top:16px">
+        <button id="btnQuitFight">Abandonner</button>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const FOLDER = "";
+    const KNOWN_CARDS = [
+      "Aapril8684.png","Astalet9286.png","Atome8883.png","Auwrah8993.png","Bandj8679.png","Bolet8789.png","Bvddy8588.png",
+      "Cassandre8586.png","Chacalou9894.png","Chayann9592.png","Chbidou8689.png","Deiji9294.png","Ekay8781.png","Emilianah8791.png",
+      "Eria8684.png","Evoknn9492.png","Fatinho9592.png","Fayeur8883.png","Flynn9086.png","Goldy8994.png","Hunter8487.png",
+      "Iesauka9491.png","Jaja8286.png","Kama9190.png","KamiKalash9084.png","Karma8882.png","Keszkia9092.png","Kuumba8883.png",
+      "Lepaing8587.png","Nabla8988.png","Nastibe7884.png","NicoB8685.png","Olumsy8785.png","Patrodator9493.png","Potaa8885.png",
+      "Pépite8195.png","Quetzai9391.png","Rag8786.png","Ryou9084.png","Tacos8982.png","Thomachine9590.png","Ujimaa9188.png",
+      "Viiper8873.png","Vortex8577.png","Wata9095.png","Xiro9268.png","Xstrab9288.png","Yeager9185.png","Ynos9075.png","Zypher8981.png"
+    ];
+    const SPIN_MS = 10000, FREE_PER_DAY = 4, ITEM_W = 168, GAP = 8;
+    const STEP = ITEM_W + GAP, REEL_COUNT = 72, WIN_INDEX = 58;
+
+    let CARDS = [], spinning = false, viewIndex = 0;
+    let peer = null, conn = null, battle = null;
+
+    const defaultState = () => ({ gold: 0, owned: {}, freeDate: null, freeUsed: 0, pseudo: "", team: [], friends: [] });
+    let state = load();
+    function load() {
+      try { return { ...defaultState(), ...JSON.parse(localStorage.getItem("chacalou-v1") || "{}") }; }
+      catch { return defaultState(); }
+    }
+    function save() { localStorage.setItem("chacalou-v1", JSON.stringify(state)); }
+
+    function todayKey() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+    function refreshFreeDay() {
+      const k = todayKey();
+      if (state.freeDate !== k) { state.freeDate = k; state.freeUsed = 0; save(); }
+    }
+    function freeLeft() { refreshFreeDay(); return Math.max(0, FREE_PER_DAY - state.freeUsed); }
+    function toast(msg) {
+      const el = document.getElementById("toast");
+      el.textContent = msg; el.classList.add("show");
+      setTimeout(() => el.classList.remove("show"), 2200);
+    }
+    function prettyName(file) {
+      return file.replace(/\.[^.]+$/, "").replace(/\d{4}$/, "").replace(/[_-]+/g, " ").trim();
+    }
+    function parseStats(file) {
+      const base = file.replace(/\.[^.]+$/, "");
+      const m = base.match(/(\d{2})(\d{2})$/);
+      if (m) return { atk: +m[1], def: +m[2], official: true };
+      let h = 0;
+      for (const c of base) h = (h * 33 + c.charCodeAt(0)) >>> 0;
+      return { atk: 30 + (h % 70), def: 30 + ((h >>> 8) % 70), official: false };
+    }
+    function cardById(id) { return CARDS.find(c => c.id === id); }
+    function enrich(c) {
+      const s = parseStats(c.file || c.id);
+      return { ...c, atk: s.atk, def: s.def, official: s.official, name: prettyName(c.file || c.id) };
+    }
+
+    function baseName(file) {
+      return String(file || "").replace(/\.[^.]+$/, "").replace(/\d{4}$/, "").toLowerCase();
+    }
+    function migrateIds() {
+      const nextOwned = {};
+      for (const [id, n] of Object.entries(state.owned || {})) {
+        const neu = CARDS.find(c => c.id === id) || CARDS.find(c => baseName(c.id) === baseName(id));
+        const key = neu ? neu.id : id;
+        nextOwned[key] = (nextOwned[key] || 0) + n;
+      }
+      state.owned = nextOwned;
+      state.team = (state.team || []).map(id => {
+        const neu = CARDS.find(c => c.id === id) || CARDS.find(c => baseName(c.id) === baseName(id));
+        return neu ? neu.id : id;
+      }).filter((id, i, arr) => arr.indexOf(id) === i);
+      save();
+    }
+    function setCards(files) {
+      const unique = [...new Set(files.filter(Boolean).map(f => f.split("/").pop()))];
+      unique.sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
+      CARDS = unique.map(file => enrich({ id: file, file, src: FOLDER + encodeURI(file) }));
+      document.getElementById("missing").hidden = true;
+      migrateIds();
+      render();
+    }
+
+    function randomCard() { return CARDS[Math.floor(Math.random() * CARDS.length)]; }
+    function easeOutStrong(t) { return 1 - Math.pow(1 - t, 6); }
+
+    function startOpen(kind) {
+      if (!CARDS.length || spinning) return;
+      if (kind === "buy") {
+        if (state.gold < 10) return toast("Pas assez de golds");
+        state.gold -= 10; save();
+      }
+      if (kind === "free") {
+        if (freeLeft() <= 0) return toast("Plus d’ouverture gratuite aujourd’hui");
+        state.freeUsed += 1; save();
+      }
+      renderHeader();
+      spin(randomCard());
+    }
+    function spin(winner) {
+      spinning = true;
+      const reel = document.getElementById("reel");
+      document.getElementById("result").textContent = "";
+      document.getElementById("resultCard").classList.remove("show");
+      document.getElementById("btnCollect").hidden = true;
+      document.getElementById("spinLabel").textContent = "Défilement";
+      const items = [];
+      for (let i = 0; i < REEL_COUNT; i++) items.push(i === WIN_INDEX ? winner : randomCard());
+      reel.innerHTML = items.map(c => `<div class="item"><img src="${c.src}" alt=""></div>`).join("");
+      reel.style.transform = "translateX(0px)";
+      document.getElementById("overlay").classList.add("show");
+      const jitter = Math.floor(Math.random() * (ITEM_W - 28)) - Math.floor((ITEM_W - 28) / 2);
+      const target = -(WIN_INDEX * STEP) - ITEM_W / 2 + jitter;
+      const t0 = performance.now();
+      const tick = (now) => {
+        const t = Math.min(1, (now - t0) / SPIN_MS);
+        reel.style.transform = `translateX(${target * easeOutStrong(t)}px)`;
+        if (t < 1) requestAnimationFrame(tick); else finishSpin(winner);
+      };
+      requestAnimationFrame(() => requestAnimationFrame(tick));
+    }
+    function finishSpin(winner) {
+      const already = (state.owned[winner.id] || 0) > 0;
+      state.owned[winner.id] = (state.owned[winner.id] || 0) + 1; save();
+      const reelItems = document.querySelectorAll("#reel .item");
+      if (reelItems[WIN_INDEX]) reelItems[WIN_INDEX].classList.add("win");
+      document.getElementById("spinLabel").textContent = already ? "Doublon" : "Nouvelle carte";
+      document.getElementById("result").textContent = winner.name + " · ATQ " + winner.atk + " / DEF " + winner.def;
+      document.getElementById("resultImg").src = winner.src;
+      document.getElementById("resultCard").classList.add("show");
+      document.getElementById("btnCollect").hidden = false;
+      spinning = false; render();
+    }
+    document.getElementById("btnCollect").onclick = () => document.getElementById("overlay").classList.remove("show");
+
+    function sellGold() { return 1 + Math.floor(Math.random() * 5); }
+    function sellOne(id) {
+      if ((state.owned[id] || 0) <= 1) return;
+      const g = sellGold();
+      state.owned[id] -= 1; state.gold += g;
+      if ((state.owned[id] || 0) <= 0) state.team = state.team.filter(x => x !== id);
+      save(); toast("+" + g + " golds"); render();
+    }
+    function sellAll() {
+      let n = 0, g = 0;
+      for (const c of CARDS) {
+        while ((state.owned[c.id] || 0) > 1) {
+          const add = sellGold(); state.owned[c.id] -= 1; state.gold += add; g += add; n++;
+        }
+      }
+      save(); toast(n ? n + " vendus · +" + g + "g" : "Aucun doublon"); render();
+    }
+
+    function cardHTML(c, extraClass = "") {
+      const count = state.owned[c.id] || 0;
+      return `<article class="card ${count ? "owned" : "locked"} ${extraClass}" data-id="${c.id}">
+        ${count > 1 ? `<div class="count-badge">×${count}</div>` : ""}
+        <div class="stat-badge">ATQ ${c.atk} · DEF ${c.def}</div>
+        <img src="${c.src}" alt="${c.name}" />
+      </article>`;
+    }
+
+    function openViewer(id) {
+      const i = CARDS.findIndex(c => c.id === id); if (i < 0) return;
+      viewIndex = i; updateViewer(); document.getElementById("viewer").classList.add("show");
+    }
+    function updateViewer() {
+      const c = CARDS[viewIndex];
+      const owned = (state.owned[c.id] || 0) > 0;
+      const img = document.getElementById("viewerImg");
+      img.src = c.src; img.classList.toggle("dim", !owned);
+      document.getElementById("viewerMeta").textContent =
+        `${c.name} · ATQ ${c.atk} / DEF ${c.def} · ${viewIndex + 1}/${CARDS.length}` + (owned ? "" : " · non obtenue");
+    }
+    function moveViewer(dir) {
+      if (!CARDS.length) return;
+      viewIndex = (viewIndex + dir + CARDS.length) % CARDS.length; updateViewer();
+    }
+    function closeViewer() { document.getElementById("viewer").classList.remove("show"); }
+    document.getElementById("viewerClose").onclick = closeViewer;
+    document.getElementById("viewer").addEventListener("click", (e) => { if (e.target.id === "viewer") closeViewer(); });
+    document.getElementById("prevBtn").onclick = (e) => { e.stopPropagation(); moveViewer(-1); };
+    document.getElementById("nextBtn").onclick = (e) => { e.stopPropagation(); moveViewer(1); };
+    document.addEventListener("keydown", (e) => {
+      if (!document.getElementById("viewer").classList.contains("show")) return;
+      if (e.key === "ArrowLeft") moveViewer(-1);
+      if (e.key === "ArrowRight") moveViewer(1);
+      if (e.key === "Escape") closeViewer();
+    });
+
+    function toggleTeam(id) {
+      if ((state.owned[id] || 0) <= 0) return toast("Carte non possédée");
+      if (state.team.includes(id)) state.team = state.team.filter(x => x !== id);
+      else {
+        if (state.team.length >= 5) return toast("Équipe déjà complète (5)");
+        state.team.push(id);
+      }
+      save(); renderTeam();
+    }
+    function renderTeam() {
+      const row = document.getElementById("teamRow");
+      const slots = [];
+      for (let i = 0; i < 5; i++) {
+        const id = state.team[i];
+        const c = id && cardById(id);
+        slots.push(c
+          ? `<div class="slot" data-id="${c.id}"><img src="${c.src}" alt=""></div>`
+          : `<div class="slot">${i + 1}</div>`);
+      }
+      row.innerHTML = slots.join("");
+      row.querySelectorAll("[data-id]").forEach(el => el.onclick = () => toggleTeam(el.dataset.id));
+      const owned = CARDS.filter(c => (state.owned[c.id] || 0) > 0);
+      const grid = document.getElementById("ownedPickGrid");
+      if (!owned.length) {
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1">Ouvre des packs pour constituer une équipe</div>`;
+        return;
+      }
+      grid.innerHTML = owned.map(c => `<div class="card-wrap">${cardHTML(c, state.team.includes(c.id) ? "picked" : "")}</div>`).join("");
+      grid.querySelectorAll(".card").forEach(el => el.onclick = () => toggleTeam(el.dataset.id));
+    }
+
+    function slug(n) { return String(n || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16); }
+    function peerId(n) { return "chacaloutcg_" + slug(n); }
+
+    function setPeerStatus(t) { document.getElementById("peerStatus").textContent = t; }
+
+    function startPeer() {
+      if (!state.pseudo || typeof Peer === "undefined") {
+        setPeerStatus("Connexion indisponible");
+        return;
+      }
+      try { if (peer) peer.destroy(); } catch {}
+      peer = new Peer(peerId(state.pseudo));
+      peer.on("open", () => setPeerStatus("En ligne · " + state.pseudo));
+      peer.on("error", (e) => {
+        if (e.type === "unavailable-id") setPeerStatus("Pseudo déjà connecté ailleurs");
+        else setPeerStatus("Erreur réseau");
+      });
+      peer.on("connection", (c) => {
+        if (battle) { c.on("open", () => c.send({ type: "busy" })); return; }
+        if ((state.team || []).length < 5) { c.on("open", () => c.send({ type: "noteam" })); return; }
+        setupConn(c, false);
+      });
+    }
+
+    function setupConn(c, asChallenger) {
+      conn = c;
+      c.on("data", onMsg);
+      c.on("close", () => { if (battle) endBattle("Déconnexion"); });
+      c.on("open", () => {
+        if (asChallenger) {
+          c.send({ type: "challenge", pseudo: state.pseudo, team: teamPayload() });
+        }
+      });
+    }
+
+    function teamPayload() {
+      return state.team.map(id => {
+        const c = enrich(cardById(id) || { id, file: id, src: encodeURI(id) });
+        return { id: c.id, src: c.src, name: c.name, atk: c.atk, def: c.def };
+      });
+    }
+
+    function onMsg(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === "busy") return toast("L’ami est déjà en combat");
+      if (msg.type === "noteam") return toast("L’ami n’a pas d’équipe de 5");
+      if (msg.type === "challenge") {
+        startBattle({ host: false, opp: msg.pseudo, oppTeam: msg.team });
+        conn.send({ type: "accept", pseudo: state.pseudo, team: teamPayload() });
+        return;
+      }
+      if (msg.type === "accept") {
+        startBattle({ host: true, opp: msg.pseudo, oppTeam: msg.team });
+        return;
+      }
+      if (msg.type === "pick" && battle) {
+        battle.oppPick = msg.card;
+        battle.oppUsed.push(msg.card.id);
+        tryResolve();
+      }
+      if (msg.type === "quit") endBattle("L’adversaire a quitté");
+    }
+
+    function startBattle({ host, opp, oppTeam }) {
+      battle = {
+        host, opp,
+        mine: teamPayload(),
+        oppTeam: oppTeam || Array.from({ length: 5 }, (_, i) => ({ id: "h" + i })),
+        myUsed: [], oppUsed: [],
+        myPick: null, oppPick: null,
+        myScore: 0, oppScore: 0,
+        round: 0
+      };
+      document.getElementById("battle").classList.add("show");
+      addFriendIfMissing(opp);
+      renderBattle();
+    }
+
+    function iAttack() { return battle && ((battle.host && battle.round % 2 === 0) || (!battle.host && battle.round % 2 === 1)); }
+
+    function renderBattle() {
+      if (!battle) return;
+      document.getElementById("meName").textContent = state.pseudo;
+      document.getElementById("oppName").textContent = battle.opp;
+      document.getElementById("meScore").textContent = battle.myScore;
+      document.getElementById("oppScore").textContent = battle.oppScore;
+      document.getElementById("roundLabel").textContent = "Duel " + Math.min(battle.round + 1, 5) + " / 5";
+      const att = iAttack();
+      if (battle.round >= 5) {
+        const win = battle.myScore > battle.oppScore ? "Victoire" : battle.myScore < battle.oppScore ? "Défaite" : "Égalité";
+        document.getElementById("battleHint").textContent = win + " · " + battle.myScore + " - " + battle.oppScore;
+      } else if (battle.myPick && !battle.oppPick) {
+        document.getElementById("battleHint").textContent = "En attente du choix adverse…";
+      } else {
+        document.getElementById("battleHint").textContent = att ? "Tu attaques — choisis une carte" : "Tu défends — choisis une carte";
+      }
+      document.getElementById("oppLane").innerHTML = battle.oppTeam.map((c, i) => {
+        const used = battle.oppUsed.includes(c.id);
+        return `<div class="bcard back ${used ? "used" : ""}"></div>`;
+      }).join("");
+      document.getElementById("myLane").innerHTML = battle.mine.map(c => {
+        const used = battle.myUsed.includes(c.id);
+        return `<div class="bcard ${used ? "used" : ""}" data-id="${c.id}"><img src="${c.src}" alt=""></div>`;
+      }).join("");
+      document.getElementById("myLane").querySelectorAll(".bcard:not(.used)").forEach(el => {
+        el.onclick = () => pickMine(el.dataset.id);
+      });
+    }
+
+    function pickMine(id) {
+      if (!battle || battle.round >= 5 || battle.myPick) return;
+      const card = battle.mine.find(c => c.id === id);
+      if (!card || battle.myUsed.includes(id)) return;
+      battle.myPick = card;
+      battle.myUsed.push(id);
+      if (conn && conn.open) conn.send({ type: "pick", card });
+      renderBattle();
+      tryResolve();
+    }
+
+    function tryResolve() {
+      if (!battle || !battle.myPick || !battle.oppPick) return;
+      const att = iAttack();
+      const atkCard = att ? battle.myPick : battle.oppPick;
+      const defCard = att ? battle.oppPick : battle.myPick;
+      const atk = atkCard.atk, def = defCard.def;
+      let line;
+      if (atk > def) {
+        if (att) battle.myScore += 1; else battle.oppScore += 1;
+        line = "ATQ " + atk + " > DEF " + def + " · point attaquant";
+      } else if (def > atk) {
+        if (att) battle.oppScore += 1; else battle.myScore += 1;
+        line = "DEF " + def + " > ATQ " + atk + " · point défenseur";
+      } else line = "ATQ " + atk + " = DEF " + def + " · nul";
+
+      document.getElementById("clash").hidden = false;
+      document.getElementById("clashMine").src = battle.myPick.src;
+      document.getElementById("clashOpp").src = battle.oppPick.src || "";
+      document.getElementById("clashMineStat").textContent = battle.myPick.name + " · ATQ " + battle.myPick.atk + " / DEF " + battle.myPick.def;
+      document.getElementById("clashOppStat").textContent = (battle.oppPick.name || "Carte") + " · ATQ " + battle.oppPick.atk + " / DEF " + battle.oppPick.def;
+      document.getElementById("battleHint").textContent = line;
+
+      const done = battle.round + 1 >= 5;
+      setTimeout(() => {
+        if (!battle) return;
+        battle.round += 1;
+        battle.myPick = null; battle.oppPick = null;
+        if (done) {
+          const win = battle.myScore > battle.oppScore ? "Victoire !" : battle.myScore < battle.oppScore ? "Défaite" : "Égalité";
+          document.getElementById("battleHint").textContent = win + " · " + battle.myScore + " - " + battle.oppScore;
+          recordMatch(battle.opp, battle.myScore > battle.oppScore ? "w" : battle.myScore < battle.oppScore ? "l" : "d");
+          renderBattle();
+        } else {
+          document.getElementById("clash").hidden = true;
+          renderBattle();
+        }
+      }, 1800);
+      renderBattle();
+    }
+
+    function endBattle(reason) {
+      if (conn) { try { conn.send({ type: "quit" }); conn.close(); } catch {} }
+      conn = null; battle = null;
+      document.getElementById("battle").classList.remove("show");
+      document.getElementById("clash").hidden = true;
+      if (reason) toast(reason);
+    }
+
+    document.getElementById("btnFight").onclick = () => startFight(document.getElementById("friendNick").value.trim());
+    document.getElementById("btnAddFriend").onclick = () => addFriend(document.getElementById("addFriendNick").value.trim());
+    document.getElementById("addFriendNick").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") document.getElementById("btnAddFriend").click();
+    });
+    document.getElementById("btnQuitFight").onclick = () => endBattle("Combat annulé");
+
+    function renderHeader() {
+      refreshFreeDay();
+      const owned = CARDS.filter(c => (state.owned[c.id] || 0) > 0).length;
+      document.getElementById("nickLabel").textContent = state.pseudo || "—";
+      document.getElementById("goldLabel").textContent = state.gold;
+      document.getElementById("colLabel").textContent = owned + "/" + CARDS.length;
+      document.getElementById("freeLabel").textContent = freeLeft() + "/" + FREE_PER_DAY;
+      document.getElementById("btnBuy").disabled = state.gold < 10 || !CARDS.length;
+      document.getElementById("btnFree").disabled = freeLeft() <= 0 || !CARDS.length;
+      document.getElementById("progressText").textContent = owned + " / " + CARDS.length + " cartes";
+    }
+    function renderCollection() {
+      const grid = document.getElementById("collectionGrid");
+      grid.innerHTML = CARDS.map(c => `<div class="card-wrap">${cardHTML(c)}</div>`).join("");
+      grid.querySelectorAll(".card").forEach(el => el.onclick = () => openViewer(el.dataset.id));
+    }
+    function renderDups() {
+      const dups = CARDS.filter(c => (state.owned[c.id] || 0) > 1);
+      const grid = document.getElementById("dupGrid");
+      if (!dups.length) { grid.innerHTML = `<div class="empty" style="grid-column:1/-1">Aucun doublon</div>`; return; }
+      grid.innerHTML = dups.map(c => `<div class="card-wrap">${cardHTML(c)}<button class="btn-sell" data-sell="${c.id}">Vendre 1 · ${state.owned[c.id] - 1}</button></div>`).join("");
+      grid.querySelectorAll(".card").forEach(el => el.onclick = () => openViewer(el.dataset.id));
+      grid.querySelectorAll("[data-sell]").forEach(btn => btn.onclick = (e) => { e.stopPropagation(); sellOne(btn.dataset.sell); });
+    }
+    function ensureFriends() {
+      if (!Array.isArray(state.friends)) state.friends = [];
+    }
+    function findFriend(name) {
+      ensureFriends();
+      const s = slug(name);
+      return state.friends.find(f => slug(f.name) === s);
+    }
+    function addFriend(name) {
+      const n = String(name || "").trim();
+      if (n.length < 2) return toast("Pseudo trop court");
+      if (slug(n) === slug(state.pseudo)) return toast("C’est toi");
+      ensureFriends();
+      if (findFriend(n)) return toast("Déjà dans tes amis");
+      state.friends.push({ name: n, wins: 0, losses: 0, draws: 0 });
+      save(); renderFriends(); toast(n + " ajouté");
+    }
+    function recordMatch(name, result) {
+      if (!name) return;
+      ensureFriends();
+      let f = findFriend(name);
+      if (!f) {
+        f = { name, wins: 0, losses: 0, draws: 0 };
+        state.friends.push(f);
+      }
+      if (result === "w") f.wins += 1;
+      else if (result === "l") f.losses += 1;
+      else f.draws += 1;
+      save(); renderFriends();
+    }
+    function removeFriend(name) {
+      ensureFriends();
+      state.friends = state.friends.filter(f => slug(f.name) !== slug(name));
+      save(); renderFriends();
+    }
+    function renderFriends() {
+      ensureFriends();
+      const box = document.getElementById("friendsList");
+      if (!box) return;
+      if (!state.friends.length) {
+        box.innerHTML = `<div class="empty">Aucun ami pour le moment.</div>`;
+        return;
+      }
+      box.innerHTML = state.friends.map(f => `
+        <div class="friend">
+          <div>
+            <b>${f.name}</b>
+            <div class="rec">${f.wins || 0}V · ${f.losses || 0}D · ${f.draws || 0}N</div>
+          </div>
+          <div class="actions">
+            <button class="btn-main" data-fight="${f.name}">Défier</button>
+            <button data-del="${f.name}">Retirer</button>
+          </div>
+        </div>`).join("");
+      box.querySelectorAll("[data-fight]").forEach(btn => btn.onclick = () => startFight(btn.dataset.fight));
+      box.querySelectorAll("[data-del]").forEach(btn => btn.onclick = () => removeFriend(btn.dataset.del));
+    }
+    function startFight(friend) {
+      if (!state.pseudo) return toast("Choisis un pseudo");
+      if ((state.team || []).length < 5) return toast("Compose une équipe de 5");
+      if (!friend) return toast("Entre le pseudo de l’ami");
+      if (slug(friend) === slug(state.pseudo)) return toast("Pas toi-même");
+      if (!peer || peer.disconnected) return toast("Pas encore en ligne");
+      addFriendIfMissing(friend);
+      const c = peer.connect(peerId(friend));
+      setPeerStatus("Connexion à " + friend + "…");
+      setupConn(c, true);
+      setTimeout(() => {
+        if (!battle && (!c.open)) toast("Ami introuvable. Il doit avoir le site ouvert.");
+      }, 4000);
+    }
+    function addFriendIfMissing(name) {
+      if (!findFriend(name) && slug(name) !== slug(state.pseudo)) {
+        ensureFriends();
+        state.friends.push({ name, wins: 0, losses: 0, draws: 0 });
+        save(); renderFriends();
+      }
+    }
+    function render() { renderHeader(); renderCollection(); renderDups(); renderTeam(); renderFriends(); }
+
+    document.getElementById("btnFree").onclick = () => startOpen("free");
+    document.getElementById("btnBuy").onclick = () => startOpen("buy");
+    document.getElementById("btnSellAll").onclick = sellAll;
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.onclick = () => {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById("tab-collection").hidden = tab.dataset.tab !== "collection";
+        document.getElementById("tab-doublons").hidden = tab.dataset.tab !== "doublons";
+        document.getElementById("tab-equipe").hidden = tab.dataset.tab !== "equipe";
+        document.getElementById("tab-amis").hidden = tab.dataset.tab !== "amis";
+      };
+    });
+
+    document.getElementById("btnNick").onclick = () => {
+      const n = document.getElementById("nickInput").value.trim();
+      if (n.length < 2) return toast("Pseudo trop court");
+      state.pseudo = n; save();
+      document.getElementById("nickModal").classList.remove("show");
+      renderHeader(); startPeer();
+    };
+    document.getElementById("nickInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") document.getElementById("btnNick").click();
+    });
+
+    setCards(KNOWN_CARDS);
+    if (!state.pseudo) document.getElementById("nickModal").classList.add("show");
+    else startPeer();
+  </script>
+</body>
+</html>
